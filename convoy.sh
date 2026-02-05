@@ -1,39 +1,37 @@
 #!/bin/bash
 
-# Convoy Panel - DragonCloud Custom Domain Installer
+# Convoy Panel - Specialized for convoy.dragoncl.qzz.io
 set -e
 
-# 1. Ask for your domain
-echo -e "\033[0;34mEnter the domain you added to Cloudflare (e.g., convoy.yourdomain.com):\033[0m"
-read -r USER_DOMAIN
+DOMAIN="convoy.dragoncl.qzz.io"
 
-if [ -z "$USER_DOMAIN" ]; then
-    echo "Domain is required to continue."
-    exit 1
-fi
+echo -e "\033[0;34mPreparing Convoy Panel for $DOMAIN...\033[0m"
 
-echo "Setting up Convoy for https://$USER_DOMAIN..."
-
-# 2. Setup Directory & Download
+# 1. Setup Directory & Clean previous attempts
 mkdir -p /var/www/convoy
 cd /var/www/convoy
+
+# 2. Download Convoy
+echo "Downloading Panel files..."
 curl -L https://github.com/convoypanel/panel/releases/latest/download/panel.tar.gz | tar -xzv
 
 # 3. FIX: Install Dependencies with PHP 8.3 Compatibility
-echo "Installing PHP dependencies..."
+# This solves the vendor/autoload.php error
+echo "Installing PHP dependencies (PHP 8.3 mode)..."
 docker run --rm \
     -v $(pwd):/app \
     -w /app \
     composer:2.7-php8.3 install --no-dev --optimize-autoloader --ignore-platform-reqs
 
-# 4. Environment Config with your Domain
+# 4. Environment Config (Configured for your specific Cloudflare domain)
 cp .env.example .env
-sed -i "s|APP_URL=http://localhost|APP_URL=https://$USER_DOMAIN|g" .env
+sed -i "s|APP_URL=http://localhost|APP_URL=https://$DOMAIN|g" .env
 sed -i 's|DB_HOST=127.0.0.1|DB_HOST=mysql|g' .env
-# Force HTTPS for Cloudflare
+
+# Essential for Cloudflare: Tells Laravel to trust the tunnel proxy for HTTPS
 echo "TRUSTED_PROXIES=*" >> .env
 
-# 5. Create Docker Compose
+# 5. Create Docker Compose (Internal port 8080)
 cat <<EOF > docker-compose.yml
 version: '3.8'
 services:
@@ -64,18 +62,19 @@ EOF
 
 # 6. Start & Initialize
 docker compose up -d
-echo "Waiting 20 seconds for Database..."
+echo "Waiting 20 seconds for database to initialize..."
 sleep 20
 
+# Final Laravel Commands
 docker compose exec panel php artisan key:generate --force
 docker compose exec panel php artisan migrate --seed --force
 
 echo "----------------------------------------------------"
-echo -e "\033[0;32mSUCCESS! Convoy is ready.\033[0m"
+echo -e "\033[0;32mDONE! Convoy is running internally on port 8080.\033[0m"
 echo "----------------------------------------------------"
-echo "Step 1: Go to Cloudflare Zero Trust -> Tunnels"
-echo "Step 2: Edit your existing Tunnel"
-echo "Step 3: Add Hostname: $USER_DOMAIN"
-echo "Step 4: Service Type: HTTP"
-echo "Step 5: URL: localhost:8080"
+echo "Since your Tunnel is already active:"
+echo "1. Go to your Cloudflare Tunnel settings for this VPS."
+echo "2. Add/Update Public Hostname: $DOMAIN"
+echo "3. Set Service: HTTP // URL: localhost:8080"
 echo "----------------------------------------------------"
+echo "The panel should now be live at https://$DOMAIN"
