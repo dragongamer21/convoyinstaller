@@ -1,44 +1,36 @@
 #!/bin/bash
 
 # =================================================================
-# Convoy + Proxmox "DragonCloud" Transformer
+# Convoy Panel - Final Fixed Version (No Composer Error)
 # Target Domain: convoy.dragoncl.qzz.io
 # =================================================================
 
 set -e
 
 DOMAIN="convoy.dragoncl.qzz.io"
-IP_ADDR=$(hostname -I | awk '{print $1}')
 
-echo -e "\033[0;34m[1/6] Preparing Proxmox Installation...\033[0m"
+echo -e "\033[0;34m[1/4] Preparing environment for $DOMAIN...\033[0m"
 
-# 1. Setup Hosts file (Required for Proxmox)
-echo "$IP_ADDR $(hostname).dragoncloud.local $(hostname)" >> /etc/hosts
-
-# 2. Add Proxmox Repository
-echo "deb [arch=amd64] http://download.proxmox.com/debian/pve bookworm pve-no-subscription" > /etc/apt/sources.list.d/pve-install-repo.list
-curl -fSsL https://enterprise.proxmox.com/proxmox-release-bookworm.gpg > /etc/apt/trusted.gpg.d/proxmox-release-bookworm.gpg
-
-# 3. Install Proxmox Kernel & Packages
-apt update && apt install -y proxmox-ve postfix open-iscsi
-
-echo -e "\033[0;32mProxmox Kernel Installed.\033[0m"
-
-# 4. Setup Convoy Directory
+# 1. Setup Directory
 mkdir -p /var/www/convoy
 cd /var/www/convoy
 
-# 5. Download and Configure Convoy
-echo -e "\033[0;34m[4/6] Setting up Convoy Panel...\033[0m"
+# 2. Download Source (for .env and artisan access)
+echo -e "\033[0;34m[2/4] Downloading source files...\033[0m"
 curl -L https://github.com/convoypanel/panel/releases/latest/download/panel.tar.gz | tar -xzv
 
+# 3. Environment Config (Fixed for Cloudflare)
+echo -e "\033[0;34m[3/4] Configuring .env for $DOMAIN...\033[0m"
 cp .env.example .env
 sed -i "s|APP_URL=http://localhost|APP_URL=https://$DOMAIN|g" .env
 sed -i 's|DB_HOST=127.0.0.1|DB_HOST=mysql|g' .env
 sed -i 's|REDIS_HOST=127.0.0.1|REDIS_HOST=redis|g' .env
+
+# Essential for Cloudflare SSL
 echo "TRUSTED_PROXIES=*" >> .env
 
-# 6. Create Docker Services
+# 4. Create Docker Compose (Internal Port 8080)
+echo -e "\033[0;34m[4/4] Creating Docker services...\033[0m"
 cat <<EOF > docker-compose.yml
 version: '3.8'
 services:
@@ -51,31 +43,40 @@ services:
     depends_on:
       - mysql
       - redis
+
   mysql:
     image: mysql:8.0
     restart: always
-    environment: {MYSQL_DATABASE: convoy, MYSQL_ALLOW_EMPTY_PASSWORD: "yes"}
-    volumes: [convoy-db:/var/lib/mysql]
+    environment:
+      - MYSQL_DATABASE=convoy
+      - MYSQL_ALLOW_EMPTY_PASSWORD=yes
+    volumes:
+      - convoy-db:/var/lib/mysql
+
   redis:
     image: redis:alpine
     restart: always
+
 volumes:
   convoy-db:
 EOF
 
+# 5. Start and Initialize
 docker compose up -d
 
-# 7. Final Initialization
-echo "Waiting for services..."
-sleep 20
+echo "Waiting 30 seconds for services to start..."
+sleep 30
+
+# Initialize App using the internal container's vendor folder
 docker compose exec -it panel php artisan key:generate --force
 docker compose exec -it panel php artisan migrate --seed --force
 
 echo "----------------------------------------------------"
-echo -e "\033[0;32mSYSTEM TRANSFORMATION COMPLETE\033[0m"
+echo -e "\033[0;32mSUCCESS! Convoy is installed with ZERO local errors.\033[0m"
 echo "----------------------------------------------------"
-echo "1. Proxmox is installed. Access it (internally) or via Tunnel."
-echo "2. Convoy is ready at https://$DOMAIN"
-echo "3. IMPORTANT: You MUST reboot now to load the Proxmox Kernel!"
-echo "   Command: 'reboot'"
+echo "Cloudflare Setup:"
+echo "Point your Tunnel ($DOMAIN) to http://localhost:8080"
+echo "----------------------------------------------------"
+echo "CREATE YOUR ADMIN LOGIN:"
+echo "docker compose exec -it panel php artisan convoy:user"
 echo "----------------------------------------------------"
