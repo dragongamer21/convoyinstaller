@@ -1,36 +1,39 @@
 #!/bin/bash
 
-# Convoy Panel - Dependency Fix & Cloudflare Link
-# For DragonCloud Environment
-
+# Convoy Panel - DragonCloud Custom Domain Installer
 set -e
 
-echo "Starting Convoy Panel Installation with Dependency Fix..."
+# 1. Ask for your domain
+echo -e "\033[0;34mEnter the domain you added to Cloudflare (e.g., convoy.yourdomain.com):\033[0m"
+read -r USER_DOMAIN
 
-# 1. Setup Directory
+if [ -z "$USER_DOMAIN" ]; then
+    echo "Domain is required to continue."
+    exit 1
+fi
+
+echo "Setting up Convoy for https://$USER_DOMAIN..."
+
+# 2. Setup Directory & Download
 mkdir -p /var/www/convoy
 cd /var/www/convoy
-
-# 2. Download Convoy
-echo "Downloading files..."
 curl -L https://github.com/convoypanel/panel/releases/latest/download/panel.tar.gz | tar -xzv
 
-# 3. FIX: Install Composer Dependencies
-# This runs composer inside a container to create the /vendor folder
-echo "Installing PHP dependencies (this may take a minute)..."
+# 3. FIX: Install Dependencies with PHP 8.3 Compatibility
+echo "Installing PHP dependencies..."
 docker run --rm \
     -v $(pwd):/app \
     -w /app \
-    composer install --no-dev --optimize-autoloader
+    composer:2.7-php8.3 install --no-dev --optimize-autoloader --ignore-platform-reqs
 
-# 4. Environment Config
-echo "Configuring .env..."
+# 4. Environment Config with your Domain
 cp .env.example .env
-APP_KEY=$(docker run --rm php:8.1-cli php -r "echo 'base64:'.base64_encode(random_bytes(32));")
-sed -i "s|APP_KEY=|APP_KEY=$APP_KEY|g" .env
+sed -i "s|APP_URL=http://localhost|APP_URL=https://$USER_DOMAIN|g" .env
 sed -i 's|DB_HOST=127.0.0.1|DB_HOST=mysql|g' .env
+# Force HTTPS for Cloudflare
+echo "TRUSTED_PROXIES=*" >> .env
 
-# 5. Create Docker Compose (Targeting localhost:8080 for your Tunnel)
+# 5. Create Docker Compose
 cat <<EOF > docker-compose.yml
 version: '3.8'
 services:
@@ -59,18 +62,20 @@ services:
     restart: always
 EOF
 
-# 6. Start & Migrate
-echo "Starting containers..."
+# 6. Start & Initialize
 docker compose up -d
-
-echo "Waiting for MySQL to be ready..."
+echo "Waiting 20 seconds for Database..."
 sleep 20
 
-# Generate keys and migrate
 docker compose exec panel php artisan key:generate --force
 docker compose exec panel php artisan migrate --seed --force
 
 echo "----------------------------------------------------"
-echo "SUCCESS! The 'vendor/autoload.php' error is resolved."
-echo "Point your Cloudflare Tunnel to: http://localhost:8080"
+echo -e "\033[0;32mSUCCESS! Convoy is ready.\033[0m"
+echo "----------------------------------------------------"
+echo "Step 1: Go to Cloudflare Zero Trust -> Tunnels"
+echo "Step 2: Edit your existing Tunnel"
+echo "Step 3: Add Hostname: $USER_DOMAIN"
+echo "Step 4: Service Type: HTTP"
+echo "Step 5: URL: localhost:8080"
 echo "----------------------------------------------------"
