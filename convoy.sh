@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # =================================================================
-# Convoy Panel - DragonCloud Final Fix (GHCR Version)
+# Convoy Panel - DragonCloud Final Fix (Correct Image Path)
 # Target Domain: convoy.dragoncl.qzz.io
 # =================================================================
 
@@ -27,12 +27,12 @@ sed -i 's|DB_HOST=127.0.0.1|DB_HOST=mysql|g' .env
 sed -i 's|REDIS_HOST=127.0.0.1|REDIS_HOST=redis|g' .env
 echo "TRUSTED_PROXIES=*" >> .env
 
-# 4. Create Docker Services (Using GHCR Image)
+# 4. Create Docker Services (FIXED IMAGE PATH)
 echo -e "\033[0;34m[4/4] Creating Docker services...\033[0m"
 cat <<EOF > docker-compose.yml
 services:
   panel:
-    image: ghcr.io/convoypanel/panel:latest
+    image: ghcr.io/convoypanel/convoy:latest
     restart: always
     ports:
       - "127.0.0.1:8080:80"
@@ -59,7 +59,7 @@ volumes:
 EOF
 
 # 5. Start and Initialize
-# We pull specifically from GHCR to avoid Docker Hub 403 errors
+echo -e "\033[0;34mPulling images from GitHub Registry...\033[0m"
 docker compose pull
 docker compose up -d
 
@@ -73,9 +73,8 @@ docker compose exec -it panel php artisan migrate --seed --force
 echo "----------------------------------------------------"
 echo -e "\033[0;32mSUCCESS! Convoy is running on port 8080.\033[0m"
 echo "----------------------------------------------------"
-echo "Cloudflare Status: Your tunnel is already linked!"
-echo "Just ensure your tunnel points $DOMAIN to http://localhost:8080"
+echo "Point your Tunnel ($DOMAIN) to http://localhost:8080"
 echo "----------------------------------------------------"
-echo "SET UP YOUR LOGIN NOW:"
+echo "SET UP YOUR LOGIN:"
 echo "docker compose exec -it panel php artisan convoy:user"
 echo "----------------------------------------------------"
